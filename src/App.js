@@ -102,7 +102,7 @@ class Playlist extends Component {
   render() {
     return (
         <div style={{...defaultStyle, width: "25%", display: 'inline-block'}}>
-            <img src={this.props.playlist.image}  />
+            <img src={this.props.playlist.image} style={{width: '160px'}}/>
             <h3>{this.props.playlist.name}</h3>
             <ul>
                {this.props.playlist.songs.map(song => <li>{song.name}</li>)}
@@ -134,6 +134,7 @@ class App extends Component {
   componentDidMount() {
     let params = new URLSearchParams(document.location.search.substring(1));
     let accessToken = params.get("access_token");
+    if (!accessToken) {return;}
 
 
     // fetch user data
@@ -149,19 +150,46 @@ class App extends Component {
       }
     }))
 
+    // fetch playlist
     fetch('https://api.spotify.com/v1/me/playlists', {
       headers: {
         'Authorization': 'Bearer ' + accessToken
       }
     })
     .then( res => res.json())
-    .then( data => this.setState({
-      playlists: data.items.map(item => {
-        console.log(data.items)
+    .then( playlistData => {
+      let playlists = playlistData.items
+      let trackDataPromises = playlists.map( playlist => {
+        let responsePromise = fetch(playlist.tracks.href, {
+          headers: {'Authorization': 'Bearer ' + accessToken}
+        })
+        let trackDataPromise = responsePromise.then(response => response.json());
+        return trackDataPromise;
+      })
+      
+
+      let allTracksDataPromises = Promise.all(trackDataPromises)
+
+      let playlistsPromise = allTracksDataPromises.then(trackDatas => {
+        trackDatas.forEach((trackData, i) => {
+          playlists[i].trackDatas = trackData.items
+          .map( item => item.track)
+          .map( trackData => ({
+            name: trackData.name,
+            duration: trackData.duration_ms/1000
+          }))
+        })
+        return playlists
+      })
+
+      return playlistsPromise;
+    })
+    .then( playlists => this.setState({
+      playlists: playlists.map(item => {
         return {
           name: item.name,
-          image: item.images.slice(-1)[0].url,
-          songs: []
+          image: item.images[0].url,
+          songs: item.trackDatas.slice(0,3)
         }
       })
     }));
@@ -191,7 +219,12 @@ class App extends Component {
             .map(playlist => 
               <Playlist playlist={playlist} />
           )}
-        </div> : <button onClick={ () => window.location = 'http://localhost:8888/login' } style={{padding: '20px', 'font-size': '50px', 'margin-top': '20px'}}>Sign in with Spotify</button>
+        </div> : <button onClick={() => {
+          window.location = window.location.href.includes('localhost') 
+          ? 'http://localhost:8888/login'
+          : 'https://better-playlists-backend-nuwen.herokuapp.com/login'
+        }} 
+        style={{padding: '20px', 'font-size': '50px', 'margin-top': '20px'}}>Sign in with Spotify</button>
         }
       </div>
     );
